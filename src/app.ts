@@ -1,4 +1,4 @@
-import { syncRoutes } from './sync/service.js';
+import { pairLock, syncRoutes } from './sync/service.js';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import staticPlugin from '@fastify/static';
@@ -93,18 +93,22 @@ export async function app(db: Database, config: Config, serveStatic = false) {
         interval: z.number().int().min(60).max(86400),
       })
       .parse(req.body);
-    const rows =
-      await db.sql`UPDATE pairs SET enabled=${body.enabled},deletion=${body.deletion},interval=${body.interval},revision=revision+1 WHERE id=${id} AND user_id=${u.id} RETURNING id`;
-    if (!rows.length) throw new HttpError(404, 'not_found');
-    return { ok: true };
+    return pairLock(db, id, async () => {
+      const rows =
+        await db.sql`UPDATE pairs SET enabled=${body.enabled},deletion=${body.deletion},interval=${body.interval},revision=revision+1 WHERE id=${id} AND user_id=${u.id} RETURNING id`;
+      if (!rows.length) throw new HttpError(404, 'not_found');
+      return { ok: true };
+    });
   });
   app.delete('/api/pairs/:id', async (req) => {
     const u = await principal(db, req),
       { id } = req.params as { id: string };
-    const rows =
-      await db.sql`DELETE FROM pairs WHERE id=${id} AND user_id=${u.id} RETURNING id`;
-    if (!rows.length) throw new HttpError(404, 'not_found');
-    return { ok: true };
+    return pairLock(db, id, async () => {
+      const rows =
+        await db.sql`DELETE FROM pairs WHERE id=${id} AND user_id=${u.id} RETURNING id`;
+      if (!rows.length) throw new HttpError(404, 'not_found');
+      return { ok: true };
+    });
   });
   app.get('/api/jobs', async (req) => {
     const u = await principal(db, req);

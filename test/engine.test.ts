@@ -236,3 +236,58 @@ test('unknown fields do not mean clear, explicit empty values do', () => {
     ['name'],
   );
 });
+test(
+  'one failed pair does not stop another and a pair lock rejects overlapping jobs',
+  { skip: !process.env.TEST_DATABASE_URL },
+  async () => {
+    const { database } = await import('../src/db/database.js');
+    const { SyncService, pairLock } = await import('../src/sync/service.js');
+    const { randomUUID } = await import('node:crypto');
+    const db = database(process.env.TEST_DATABASE_URL!);
+    await db.migrate();
+    const user = randomUUID(),
+      pairs = [randomUUID(), randomUUID()];
+    const accountIds = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    try {
+      await db.sql`INSERT INTO users(id,issuer,subject) VALUES(${user},'test',${user})`;
+      for (let i = 0; i < 4; i++)
+        await db.sql`INSERT INTO accounts(id,user_id,provider,issuer,subject,status) VALUES(${accountIds[i]!},${user},${i % 2 ? 'microsoft' : 'google'},'test',${accountIds[i]!},'connected')`;
+      for (let i = 0; i < 2; i++) {
+        const state = emptyState();
+        state.initialized = true;
+        await db.sql`INSERT INTO pairs(id,user_id,google_id,microsoft_id,folder,enabled,state) VALUES(${pairs[i]!},${user},${accountIds[i * 2]!},${accountIds[i * 2 + 1]!},'contacts',true,${JSON.stringify(state)}::jsonb)`;
+      }
+      await pairLock(db, pairs[0]!, async () => {
+        await assert.rejects(
+          () => pairLock(db, pairs[0]!, async () => {}),
+          /pair_busy/,
+        );
+        await pairLock(db, pairs[1]!, async () => {});
+      });
+      const factory = (
+        _db: unknown,
+        _config: unknown,
+        _user: string,
+        googleId: string,
+      ) => {
+        const google = new Mock('g'),
+          microsoft = new Mock('m');
+        google.fail = googleId === accountIds[0];
+        return { google, microsoft };
+      };
+      const service = new SyncService(db, {} as never, factory as never);
+      await service.tick();
+      const jobs =
+        await db.sql`SELECT status FROM jobs WHERE user_id=${user} ORDER BY status`;
+      assert.deepEqual(
+        jobs.map((j) => j.status),
+        ['failed', 'succeeded'],
+      );
+    } finally {
+      await db.sql`DELETE FROM pairs WHERE user_id=${user}`;
+      await db.sql`DELETE FROM accounts WHERE user_id=${user}`;
+      await db.sql`DELETE FROM users WHERE id=${user}`;
+      await db.close();
+    }
+  },
+);

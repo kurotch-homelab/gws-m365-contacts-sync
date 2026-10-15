@@ -361,20 +361,6 @@ export class Engine {
         continue;
       }
       await this.guard();
-      let mapping = this.state.maps.find((m) => m.id === item.mappingId);
-      if (!mapping) {
-        mapping = {
-          id: randomUUID(),
-          google: item.google,
-          microsoft: item.microsoft,
-          base: {},
-          googleBase: {},
-          microsoftBase: {},
-        };
-        this.state.maps.push(mapping);
-        item.mappingId = mapping.id;
-        await this.save();
-      }
       // Validate all source/target versions before the first write; recheck each target too.
       for (const side of sides) {
         const id = item[side];
@@ -397,6 +383,20 @@ export class Engine {
         if (fingerprint(latest) !== item.expected[side])
           throw new ProviderError('stale_plan');
         this.state.cache[side][id] = latest;
+      }
+      let mapping = this.state.maps.find((m) => m.id === item.mappingId);
+      if (!mapping) {
+        mapping = {
+          id: randomUUID(),
+          google: item.google,
+          microsoft: item.microsoft,
+          base: {},
+          googleBase: {},
+          microsoftBase: {},
+        };
+        this.state.maps.push(mapping);
+        item.mappingId = mapping.id;
+        await this.save();
       }
       for (const side of sides) {
         await this.guard();

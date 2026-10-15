@@ -44,6 +44,7 @@ export class SyncService {
   constructor(
     private db: Database,
     private config: Config,
+    private makeAdapters = adapters,
   ) {}
   async withPair<T>(
     userId: string,
@@ -69,7 +70,7 @@ export class SyncService {
         pair,
         new Engine(
           pair.state,
-          adapters(
+          this.makeAdapters(
             this.db,
             this.config,
             userId,
@@ -207,7 +208,7 @@ export function syncRoutes(app: FastifyInstance, db: Database, config: Config) {
         plan.expires < Date.now() ||
         !item ||
         item.kind !== 'conflict' ||
-        item.reason !== 'field_conflict'
+        !['field_conflict', 'edit_delete_conflict'].includes(item.reason ?? '')
       )
         throw new HttpError(409, 'resolution_unavailable');
       const contactId = item[body.side],
@@ -215,14 +216,36 @@ export function syncRoutes(app: FastifyInstance, db: Database, config: Config) {
           ? pair.state.cache[body.side][contactId]
           : undefined;
       if (!contact) throw new HttpError(409, 'contact_missing');
-      const fields: Fields = { ...item.fields };
-      for (const field of item.conflicts ?? [])
-        if (contact.fields[field] !== undefined)
-          fields[field] = contact.fields[field];
-      googlePatch(fields, pair.state.cache.google[item.google ?? '']?.raw);
-      graphPatch(fields, pair.state.cache.microsoft[item.microsoft ?? '']?.raw);
-      item.fields = fields;
-      item.kind = 'sync';
+      if (item.reason === 'edit_delete_conflict') {
+        if (contact.deleted) {
+          if (!pair.deletion) throw new HttpError(409, 'deletion_disabled');
+          item.kind = 'delete';
+          item.fields = {};
+        } else {
+          const other = body.side === 'google' ? 'microsoft' : 'google';
+          const mapping = pair.state.maps.find((m) => m.id === item.mappingId);
+          if (!mapping) throw new HttpError(409, 'mapping_missing');
+          delete mapping[other];
+          delete item[other];
+          delete item.expected[other];
+          item.fields = contact.fields;
+          item.kind = 'sync';
+          googlePatch(item.fields);
+          graphPatch(item.fields);
+        }
+      } else {
+        const fields: Fields = { ...item.fields };
+        for (const field of item.conflicts ?? [])
+          if (contact.fields[field] !== undefined)
+            fields[field] = contact.fields[field];
+        googlePatch(fields, pair.state.cache.google[item.google ?? '']?.raw);
+        graphPatch(
+          fields,
+          pair.state.cache.microsoft[item.microsoft ?? '']?.raw,
+        );
+        item.fields = fields;
+        item.kind = 'sync';
+      }
       delete item.reason;
       delete item.conflicts;
       plan.id = randomUUID();
