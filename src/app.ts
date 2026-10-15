@@ -1,3 +1,4 @@
+import { syncRoutes } from './sync/service.js';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import staticPlugin from '@fastify/static';
@@ -28,6 +29,7 @@ export async function app(db: Database, config: Config, serveStatic = false) {
     });
   });
   authRoutes(app, db, config);
+  syncRoutes(app, db, config);
   app.get('/health', async () => {
     await db.sql`SELECT 1`;
     return { status: 'ok' };
