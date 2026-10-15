@@ -172,3 +172,101 @@ test(
     }
   },
 );
+
+test(
+  'owner mapping repair rejects removed records and clears a folder hold without provider writes',
+  { skip: !url },
+  async () => {
+    const { emptyState, Engine } = await import('../src/sync/engine.js');
+    const { graphContact } = await import('../src/providers/mapping.js');
+    const db = database(url!);
+    await db.migrate();
+    const [user, google, microsoft, pair, mapping] = Array.from(
+      { length: 5 },
+      () => randomUUID(),
+    ) as [string, string, string, string, string];
+    const cfg = {
+      origin: 'http://localhost:3000',
+      key: Buffer.alloc(32, 7),
+      providers: {},
+      allowlist: [],
+      admins: [],
+    } as unknown as Config;
+    const server = await app(db, cfg);
+    try {
+      await db.sql`INSERT INTO users(id,issuer,subject) VALUES(${user},'test',${user})`;
+      await db.sql`INSERT INTO sessions(id,user_id,csrf,expires) VALUES(${hash(user)},${user},'csrf',now()+interval '1 hour')`;
+      await db.sql`INSERT INTO accounts(id,user_id,provider,issuer,subject,status) VALUES(${google},${user},'google','test',${google},'connected'),(${microsoft},${user},'microsoft','test',${microsoft},'connected')`;
+      const state = emptyState(),
+        live = graphContact({ id: 'm2', givenName: 'Alice', changeKey: '1' }),
+        g = { ...live, id: 'g0', raw: {} };
+      state.initialized = true;
+      state.cache = {
+        google: { g0: g },
+        microsoft: {
+          m1: graphContact({ id: 'm1', '@removed': { reason: 'deleted' } }),
+          m2: live,
+        },
+      };
+      state.maps = [
+        {
+          id: mapping,
+          google: 'g0',
+          microsoft: 'm1',
+          base: g.fields,
+          googleBase: g.fields,
+          microsoftBase: g.fields,
+        },
+      ];
+      await db.sql`INSERT INTO pairs(id,user_id,google_id,microsoft_id,folder,state) VALUES(${pair},${user},${google},${microsoft},'folder',${JSON.stringify(state)}::jsonb)`;
+      const link = (m: string) =>
+        server.inject({
+          method: 'POST',
+          url: `/api/pairs/${pair}/link`,
+          headers: {
+            cookie: `session=${user}`,
+            origin: cfg.origin,
+            'x-csrf-token': 'csrf',
+          },
+          payload: { google: 'g0', microsoft: m, mappingId: mapping },
+        });
+      assert.equal((await link('m1')).statusCode, 409);
+      const result = await link('m2');
+      assert.equal(result.statusCode, 200);
+      assert.ok(
+        result.json().items.every((i: { kind: string }) => i.kind === 'skip'),
+      );
+      const [row] = await db.sql`SELECT state FROM pairs WHERE id=${pair}`;
+      const repaired = row!.state as typeof state;
+      assert.equal(repaired.maps[0]?.microsoft, 'm2');
+      assert.equal(repaired.maps[0]?.id, mapping);
+      const forbidden = async () => {
+        throw new Error('repair must not access providers');
+      };
+      const adapter = {
+        read: forbidden,
+        get: forbidden,
+        create: forbidden,
+        update: forbidden,
+        delete: forbidden,
+      };
+      const engine = new Engine(
+        repaired,
+        { google: adapter, microsoft: adapter },
+        async () => {},
+      );
+      const counts = await engine.apply(repaired.plan!.id, 0, false);
+      assert.equal(counts.created + counts.updated + counts.deleted, 0);
+      assert.deepEqual(
+        engine.plan(0, true).items.map((i) => i.kind),
+        ['skip'],
+      );
+    } finally {
+      await server.close();
+      await db.sql`DELETE FROM pairs WHERE user_id=${user}`;
+      await db.sql`DELETE FROM accounts WHERE user_id=${user}`;
+      await db.sql`DELETE FROM users WHERE id=${user}`;
+      await db.close();
+    }
+  },
+);

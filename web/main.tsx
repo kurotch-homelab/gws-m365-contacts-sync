@@ -18,7 +18,12 @@ type Pair = {
   deletion: boolean;
   interval: number;
 };
-type Contact = { id: string; fields: Fields; deleted?: boolean };
+type Contact = {
+  id: string;
+  fields: Fields;
+  deleted?: boolean;
+  removedFromFolder?: boolean;
+};
 type Detail = {
   initialized: boolean;
   plan?: Plan;
@@ -538,7 +543,7 @@ function App() {
                       Choose contact
                     </option>
                     {detail.contacts[side]
-                      .filter((c) => !c.deleted)
+                      .filter((c) => !c.deleted && !c.removedFromFolder)
                       .map((c) => (
                         <option key={c.id} value={c.id}>
                           {contactName(c)} · {c.id}
