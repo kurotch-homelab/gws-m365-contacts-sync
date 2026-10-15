@@ -327,3 +327,98 @@ test('definite authentication rejection releases the unsent create intent for a 
   await s.engine.apply(plan.id, 0, false);
   assert.equal(s.microsoft.creates, 1);
 });
+
+for (const status of [401, 429, 400]) {
+  for (const kind of ['create', 'update'] as const) {
+    test(`Graph ${kind} hydration ${status} retains the journal through restart without replay`, async () => {
+      const { Microsoft } = await import('../src/providers/adapters.js');
+      const { Http } = await import('../src/providers/http.js');
+      const google = new Mock('g', [
+        contact('g0', { givenName: 'Alice', notes: 'before' }),
+      ]);
+      let remote: Record<string, unknown> | undefined;
+      let posts = 0,
+        patches = 0,
+        failHydration = false,
+        saved = emptyState();
+      const transport: typeof fetch = async (input, init) => {
+        const url = new URL(String(input));
+        if (init?.method === 'POST') {
+          posts++;
+          remote = {
+            ...JSON.parse(String(init.body)),
+            id: 'm1',
+            changeKey: '1',
+          };
+          failHydration = kind === 'create';
+          return Response.json({ id: 'm1' });
+        }
+        if (init?.method === 'PATCH') {
+          patches++;
+          remote = {
+            ...remote,
+            ...JSON.parse(String(init.body)),
+            changeKey: '2',
+          };
+          failHydration = true;
+          return Response.json({ id: 'm1' });
+        }
+        if (url.pathname.endsWith('/delta'))
+          return Response.json({
+            value: remote ? [{ id: 'm1' }] : [],
+            '@odata.deltaLink':
+              'https://graph.microsoft.com/v1.0/me/contactFolders/folder/contacts/delta?$deltatoken=next',
+          });
+        if (failHydration)
+          return Response.json(
+            {},
+            { status, headers: { 'retry-after': '60' } },
+          );
+        return Response.json(remote);
+      };
+      const microsoft = new Microsoft(
+        new Http(
+          async () => 'synthetic',
+          'https://graph.microsoft.com',
+          transport,
+        ),
+        'folder',
+      );
+      const restart = () => {
+        const state = structuredClone(saved);
+        return new Engine(state, { google, microsoft }, async () => {
+          saved = structuredClone(state);
+        });
+      };
+      let engine = restart();
+      let plan = await engine.dryRun(0, false);
+      if (kind === 'update') {
+        await engine.apply(plan.id, 0, false);
+        google.edit('g0', { notes: 'updated' });
+        plan = await engine.dryRun(0, false);
+      }
+      await assert.rejects(
+        () => engine.apply(plan.id, 0, false),
+        /write_outcome_unknown/,
+      );
+      const pending = saved.intents.filter((i) => !i.done);
+      assert.equal(pending.length, 1);
+      assert.equal(pending[0]?.kind, kind);
+      const marker = pending[0]!.id;
+      engine = restart();
+      await assert.rejects(() => engine.apply(plan.id, 0, false));
+      assert.equal(saved.intents.find((i) => i.id === marker)?.done, false);
+      assert.equal(posts, 1);
+      failHydration = false;
+      engine = restart();
+      await engine.apply(plan.id, 0, false);
+      assert.equal(saved.intents.find((i) => i.id === marker)?.done, true);
+      assert.equal(saved.maps[0]?.microsoft, 'm1');
+      await engine.apply(plan.id, 0, false);
+      const next = await engine.dryRun(0, false);
+      await engine.apply(next.id, 0, false);
+      assert.equal(posts, 1);
+      assert.equal(patches, kind === 'update' ? 1 : 0);
+    });
+  }
+}
