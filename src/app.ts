@@ -18,16 +18,14 @@ export async function app(db: Database, config: Config, serveStatic = false) {
           ? error.statusCode
           : 500;
     // Never serialize request URLs, provider responses, bodies, tokens or contact data.
-    reply
-      .status(status)
-      .send({
-        error:
-          status === 500
-            ? 'internal_error'
-            : error instanceof HttpError
-              ? error.message
-              : 'invalid_request',
-      });
+    reply.status(status).send({
+      error:
+        status === 500
+          ? 'internal_error'
+          : error instanceof HttpError
+            ? error.message
+            : 'invalid_request',
+    });
   });
   authRoutes(app, db, config);
   app.get('/health', async () => {
