@@ -291,3 +291,22 @@ test(
     }
   },
 );
+test('explicit linking of equal contacts establishes baselines for later one-sided edits', async () => {
+  const g = contact('g0', { givenName: 'A', emails: ['a@example.test'] }),
+    m = contact('m0', g.fields);
+  const s = setup(new Mock('g', [g]), new Mock('m', [m]));
+  s.engine.state.maps.push({
+    id: 'mapping',
+    google: 'g0',
+    microsoft: 'm0',
+    base: {},
+    googleBase: {},
+    microsoftBase: {},
+  });
+  await initial(s);
+  s.google.edit('g0', { givenName: 'B' });
+  const p = await s.engine.dryRun(0, false);
+  assert.equal(p.items[0]?.kind, 'sync');
+  await s.engine.apply(p.id, 0, false);
+  assert.equal(s.microsoft.contacts.m0?.fields.givenName, 'B');
+});

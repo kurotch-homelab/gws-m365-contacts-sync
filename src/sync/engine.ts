@@ -357,6 +357,13 @@ export class Engine {
         continue;
       }
       if (item.kind === 'skip') {
+        const mapping = this.state.maps.find((m) => m.id === item.mappingId);
+        if (mapping && !item.reason && Object.keys(item.fields).length) {
+          mapping.base = { ...mapping.base, ...item.fields };
+          mapping.googleBase = this.state.cache.google[mapping.google!]!.fields;
+          mapping.microsoftBase =
+            this.state.cache.microsoft[mapping.microsoft!]!.fields;
+        }
         counts.skipped++;
         continue;
       }
