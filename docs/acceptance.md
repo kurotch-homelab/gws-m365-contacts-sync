@@ -34,3 +34,9 @@ No production deployment, real consent, credential generation, tenant-policy cha
 - No GitHub Actions workflows were added or run. All checks ran in the user's saved cloud environment.
 
 The bundled Playwright browser download was denied by domain policy; the already-installed Chromium provided browser verification. Native GitHub Sub Issue attachment was unavailable in the connected tools and direct API access was forbidden; the focused issues are cross-linked on #1 instead. These restrictions were not bypassed.
+
+## Safety repairs — issues #10 and #11
+
+Local follow-up verification passed 37 Node tests (zero skips) with PostgreSQL and both system-Chromium smoke tests, plus formatting, lint, strict typechecks and production build. Six Graph POST/PATCH hydration regressions retain pending journals through 401/429/400 failures and restart, recovering without a repeated mutation. Folder removals remain held across repeated runs, legacy snapshots/plans and old conflict-resolution requests; owner-scoped mapping repair to a live record performs no provider writes. The browser excludes removed records from repair targets.
+
+Genuine Microsoft deletions represented only by folder delta are also held: this signal does not establish mailbox-wide deletion. That limitation is enforced in code, not merely documented. No real contacts, provider configuration, GitHub authentication or existing commits were changed. Future implementation and local merge commits use the owner-selected Git identity.

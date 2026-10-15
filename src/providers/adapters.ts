@@ -123,7 +123,9 @@ export class Microsoft implements Adapter {
       const result = await this.http.request(this.validate(url));
       for (const raw of (result.value as Record<string, unknown>[]) ?? []) {
         const contact = graphContact(raw);
-        contacts.push(contact.deleted ? contact : await this.get(contact.id));
+        contacts.push(
+          contact.removedFromFolder ? contact : await this.get(contact.id),
+        );
       }
       if (result['@odata.nextLink']) url = String(result['@odata.nextLink']);
       else {

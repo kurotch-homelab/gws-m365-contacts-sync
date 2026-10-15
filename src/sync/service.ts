@@ -8,7 +8,7 @@ import { ProviderError } from '../providers/http.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { googlePatch, graphPatch } from '../providers/mapping.js';
-import type { Fields } from './model.js';
+import { isFolderRemoval, type Fields } from './model.js';
 interface Pair {
   id: string;
   user_id: string;
@@ -190,11 +190,19 @@ export function syncRoutes(app: FastifyInstance, db: Database, config: Config) {
         .map((i) => ({ id: i.id, kind: i.kind, side: i.side })),
       tombstones: state.tombstones ?? [],
       contacts: {
-        google: Object.values(state.cache?.google ?? {}).map(
-          ({ id, fields, deleted }) => ({ id, fields, deleted }),
-        ),
+        google: Object.values(state.cache?.google ?? {}).map((contact) => ({
+          id: contact.id,
+          fields: contact.fields,
+          deleted: contact.deleted,
+          removedFromFolder: isFolderRemoval(contact),
+        })),
         microsoft: Object.values(state.cache?.microsoft ?? {}).map(
-          ({ id, fields, deleted }) => ({ id, fields, deleted }),
+          (contact) => ({
+            id: contact.id,
+            fields: contact.fields,
+            deleted: contact.deleted,
+            removedFromFolder: isFolderRemoval(contact),
+          }),
         ),
       },
     };
@@ -233,11 +241,14 @@ export function syncRoutes(app: FastifyInstance, db: Database, config: Config) {
         !['field_conflict', 'edit_delete_conflict'].includes(item.reason ?? '')
       )
         throw new HttpError(409, 'resolution_unavailable');
+      if (isFolderRemoval(pair.state.cache.microsoft[item.microsoft ?? '']))
+        throw new HttpError(409, 'folder_removal_requires_reconciliation');
       const contactId = item[body.side],
         contact = contactId
           ? pair.state.cache[body.side][contactId]
           : undefined;
-      if (!contact) throw new HttpError(409, 'contact_missing');
+      if (!contact || isFolderRemoval(contact))
+        throw new HttpError(409, 'contact_missing');
       if (item.reason === 'edit_delete_conflict') {
         if (contact.deleted) {
           if (!pair.deletion) throw new HttpError(409, 'deletion_disabled');
@@ -290,7 +301,8 @@ export function syncRoutes(app: FastifyInstance, db: Database, config: Config) {
         throw new HttpError(409, 'pending_write');
       for (const side of sides) {
         const c = pair.state.cache[side][body[side]];
-        if (!c || c.deleted) throw new HttpError(409, 'contact_missing');
+        if (!c || c.deleted || isFolderRemoval(c))
+          throw new HttpError(409, 'contact_missing');
         if (
           pair.state.maps.some(
             (m) => m.id !== body.mappingId && m[side] === body[side],

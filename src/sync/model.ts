@@ -7,8 +7,13 @@ export interface Contact {
   fields: Fields;
   raw: Record<string, unknown>;
   deleted?: boolean;
+  removedFromFolder?: boolean;
   marker?: string;
 }
+// Also recognize persisted pre-fix Graph snapshots, which marked @removed as deleted.
+export const isFolderRemoval = (contact: Contact | undefined): boolean =>
+  !!contact &&
+  (contact.removedFromFolder === true || !!contact.raw['@removed']);
 export interface PageSet {
   contacts: Contact[];
   cursor: string;

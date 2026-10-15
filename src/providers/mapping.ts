@@ -94,7 +94,7 @@ export function graphContact(raw: Obj): Contact {
       str(raw['@odata.etag']) ||
       (raw.changeKey ? `W/"${str(raw.changeKey)}"` : ''),
     raw,
-    deleted: !!raw['@removed'],
+    removedFromFolder: !!raw['@removed'],
     marker:
       str(
         arr(raw.singleValueExtendedProperties).find((p) => p.id === markerId)

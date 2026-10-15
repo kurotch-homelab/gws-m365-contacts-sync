@@ -4,6 +4,7 @@ import { ProviderError } from '../providers/http.js';
 import { googlePatch, graphPatch, MappingError } from '../providers/mapping.js';
 import {
   equal,
+  isFolderRemoval,
   stable,
   type Adapter,
   type Contact,
@@ -80,6 +81,7 @@ export const fingerprint = (contact: Contact) =>
       etag: contact.etag,
       fields: contact.fields,
       deleted: contact.deleted ?? false,
+      removedFromFolder: isFolderRemoval(contact),
     }),
   );
 function changed(fields: Fields, base: Fields) {
@@ -119,6 +121,7 @@ export class Engine {
         this.state.cache[side][contact.id] = contact;
         if (
           contact.deleted &&
+          !isFolderRemoval(contact) &&
           !this.state.tombstones.some(
             (t) => t.side === side && t.id === contact.id,
           )
@@ -131,7 +134,12 @@ export class Engine {
     for (const mapping of this.state.maps.filter((m) => !m.retired))
       for (const side of sides) {
         const id = mapping[side];
-        if (!id || this.state.cache[side][id]?.deleted) continue;
+        if (
+          !id ||
+          this.state.cache[side][id]?.deleted ||
+          isFolderRemoval(this.state.cache[side][id])
+        )
+          continue;
         try {
           this.state.cache[side][id] = await this.adapters[side].get(id);
         } catch (error) {
@@ -170,7 +178,10 @@ export class Engine {
         fields: {},
         kind: 'sync',
       };
-      if (!g || !m) {
+      if (isFolderRemoval(m)) {
+        item.kind = 'conflict';
+        item.reason = 'folder_removal_requires_reconciliation';
+      } else if (!g || !m) {
         item.kind = 'conflict';
         item.reason = 'missing_or_moved_id';
       } else if (g.deleted || m.deleted) {
@@ -222,7 +233,7 @@ export class Engine {
       sides.map((side) => [
         side,
         Object.values(this.state.cache[side]).filter(
-          (c) => !c.deleted && !used[side].has(c.id),
+          (c) => !c.deleted && !isFolderRemoval(c) && !used[side].has(c.id),
         ),
       ]),
     ) as Record<Side, Contact[]>;
@@ -291,7 +302,7 @@ export class Engine {
       if (intent.kind === 'create') {
         const all = await this.adapters[intent.side].read();
         const matches = all.contacts.filter(
-          (c) => c.marker === intent.id && !c.deleted,
+          (c) => c.marker === intent.id && !c.deleted && !isFolderRemoval(c),
         );
         if (matches.length !== 1)
           throw new ProviderError('uncertain_create_requires_reconciliation');
@@ -368,6 +379,9 @@ export class Engine {
         continue;
       }
       await this.guard();
+      // Block pre-upgrade plans as well as newly planned folder-removal holds.
+      if (isFolderRemoval(this.state.cache.microsoft[item.microsoft ?? '']))
+        throw new ProviderError('folder_removal_requires_reconciliation');
       // Validate all source/target versions before the first write; recheck each target too.
       for (const side of sides) {
         const id = item[side];

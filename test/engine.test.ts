@@ -422,3 +422,120 @@ for (const status of [401, 429, 400]) {
     });
   }
 }
+
+for (const folderGetStatus of [404, 401, 503]) {
+  test(`Graph folder removal holds with original-folder GET ${folderGetStatus}, even when deletion is enabled`, async () => {
+    const { Microsoft } = await import('../src/providers/adapters.js');
+    const { Http } = await import('../src/providers/http.js');
+    const { graphContact } = await import('../src/providers/mapping.js');
+    const movedElsewhere = {
+      id: 'm1',
+      givenName: 'Alice',
+      parentFolderId: 'other-folder',
+      changeKey: '1',
+    };
+    const m = graphContact(movedElsewhere),
+      g = contact('g0', m.fields);
+    const google = new Mock('g', [g]);
+    let nonDeltaRequests = 0;
+    const transport: typeof fetch = async (input) => {
+      if (new URL(String(input)).pathname.endsWith('/delta'))
+        return Response.json({
+          value: [{ id: 'm1', '@removed': { reason: 'deleted' } }],
+          '@odata.deltaLink':
+            'https://graph.microsoft.com/v1.0/me/contactFolders/folder/contacts/delta?$deltatoken=next',
+        });
+      nonDeltaRequests++;
+      return Response.json({}, { status: folderGetStatus });
+    };
+    const microsoft = new Microsoft(
+      new Http(
+        async () => 'synthetic',
+        'https://graph.microsoft.com',
+        transport,
+        async () => {},
+      ),
+      'folder',
+    );
+    let saved = emptyState();
+    saved.initialized = true;
+    saved.cursors.microsoft =
+      'https://graph.microsoft.com/v1.0/me/contactFolders/folder/contacts/delta?$deltatoken=old';
+    saved.cache = { google: { g0: g }, microsoft: { m1: m } };
+    saved.maps = [
+      {
+        id: 'mapping',
+        google: 'g0',
+        microsoft: 'm1',
+        base: g.fields,
+        googleBase: g.fields,
+        microsoftBase: m.fields,
+      },
+    ];
+    for (let run = 0; run < 2; run++) {
+      const state = structuredClone(saved);
+      const engine = new Engine(state, { google, microsoft }, async () => {
+        saved = structuredClone(state);
+      });
+      const plan = await engine.dryRun(0, true);
+      assert.equal(
+        plan.items[0]?.reason,
+        'folder_removal_requires_reconciliation',
+      );
+      assert.equal(plan.items[0]?.kind, 'conflict');
+      const counts = await engine.apply(plan.id, 0, true);
+      assert.equal(counts.deleted, 0);
+      assert.equal(counts.conflicts, 1);
+      assert.equal(saved.tombstones.length, 0);
+      assert.equal(saved.maps[0]?.microsoft, 'm1');
+      assert.equal(saved.cache.microsoft.m1?.removedFromFolder, true);
+      assert.equal(saved.cache.microsoft.m1?.deleted, undefined);
+    }
+    assert.equal(nonDeltaRequests, 0); // Never use a folder-scoped absence as proof.
+    assert.equal(google.writes, 0);
+    assert.equal(google.contacts.g0?.deleted, undefined);
+    assert.equal(movedElsewhere.parentFolderId, 'other-folder');
+  });
+}
+
+test('legacy Graph removal snapshots and pre-upgrade delete plans remain held', async () => {
+  const s = setup();
+  await initial(s);
+  s.engine.state.cache.microsoft.m1 = {
+    ...s.engine.state.cache.microsoft.m1!,
+    deleted: true,
+    raw: { id: 'm1', '@removed': { reason: 'deleted' } },
+  };
+  const plan = s.engine.plan(0, true);
+  assert.equal(plan.items[0]?.reason, 'folder_removal_requires_reconciliation');
+  // A persisted plan made by the previous version must not bypass the new hold.
+  plan.items[0]!.kind = 'delete';
+  s.engine.state.plan = plan;
+  const before = s.google.writes + s.microsoft.writes;
+  await assert.rejects(
+    () => s.engine.apply(plan.id, 0, true),
+    /folder_removal_requires_reconciliation/,
+  );
+  assert.equal(s.google.writes + s.microsoft.writes, before);
+  assert.equal(s.google.contacts.g0?.deleted, undefined);
+});
+
+test('unmapped folder removals never become fresh creates', async () => {
+  const s = setup(new Mock('g'), new Mock('m'));
+  s.engine.state.cache.microsoft.m1 = {
+    ...contact('m1', {}),
+    removedFromFolder: true,
+    raw: { '@removed': { reason: 'deleted' } },
+  };
+  assert.deepEqual(s.engine.plan(0, true).items, []);
+});
+
+test('a proven deletion without folder-removal ambiguity still follows opt-in policy', async () => {
+  const s = setup();
+  await initial(s);
+  s.microsoft.contacts.m1!.deleted = true;
+  const p = await s.engine.dryRun(0, true);
+  assert.equal(p.items[0]?.kind, 'delete');
+  await s.engine.apply(p.id, 0, true);
+  assert.equal(s.google.contacts.g0?.deleted, true);
+});
