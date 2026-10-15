@@ -1,0 +1,9 @@
+.git
+node_modules
+dist
+web-dist
+.env
+secrets
+test-results
+playwright-report
+coverage

@@ -1,0 +1,70 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:3000:3000'
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN}
+      TOKEN_KEY_FILE: /run/secrets/token_key
+      LOGIN_ALLOWLIST: ${LOGIN_ALLOWLIST:?Set stable issuer|subject allowlist}
+      ADMIN_IDENTITIES: ${ADMIN_IDENTITIES:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?Set Google client ID}
+      GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:?Set Microsoft client ID}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:?Set Microsoft tenant ID}
+      MICROSOFT_PRIVATE_KEY_FILE: /run/secrets/microsoft_private_key
+      MICROSOFT_CERT_SHA256: ${MICROSOFT_CERT_SHA256:?Set base64url certificate SHA256 thumbprint}
+    secrets:
+      - database_url
+      - token_key
+      - google_client_secret
+      - microsoft_private_key
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: contacts
+      POSTGRES_USER: contacts
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+    secrets: [database_password]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U contacts -d contacts']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+secrets:
+  database_url:
+    file: ${SECRETS_DIR:-./secrets}/database-url
+  database_password:
+    file: ${SECRETS_DIR:-./secrets}/database-password
+  token_key:
+    file: ${SECRETS_DIR:-./secrets}/token-key
+  google_client_secret:
+    file: ${SECRETS_DIR:-./secrets}/google-client-secret
+  microsoft_private_key:
+    file: ${SECRETS_DIR:-./secrets}/microsoft-private-key
+volumes:
+  postgres_data:

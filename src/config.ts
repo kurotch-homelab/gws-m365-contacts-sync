@@ -33,7 +33,9 @@ export function config(env: NodeJS.ProcessEnv = process.env): Config {
   const tenant = z.string().uuid().parse(get('MICROSOFT_TENANT_ID'));
   const microsoftIssuer = `https://login.microsoftonline.com/${tenant}/v2.0`;
   return {
-    databaseUrl: get('DATABASE_URL'),
+    databaseUrl: env.DATABASE_URL_FILE
+      ? readFileSync(env.DATABASE_URL_FILE, 'utf8').trim()
+      : get('DATABASE_URL'),
     origin,
     key,
     allowlist: get('LOGIN_ALLOWLIST').split(','),

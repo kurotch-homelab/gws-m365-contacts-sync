@@ -2,3 +2,5 @@ node_modules
 dist
 web-dist
 package-lock.json
+test-results
+playwright-report

@@ -33,7 +33,9 @@ export function adapters(
             refresh_token: updated.refresh_token ?? tokens.refresh_token,
           };
           await tx`UPDATE accounts SET token=${seal(config.key, tokens, `${userId}:${id}`)} WHERE id=${id} AND user_id=${userId}`;
-        } catch {
+        } catch (error) {
+          if (!(error instanceof Error) || error.message !== 'reauth_required')
+            throw new ProviderError('oauth_unavailable');
           await tx`UPDATE accounts SET status='reauth_required' WHERE id=${id} AND user_id=${userId}`;
           return null;
         }

@@ -6,6 +6,8 @@ import {
   jsonb,
   integer,
   uniqueIndex,
+  unique,
+  foreignKey,
 } from 'drizzle-orm/pg-core';
 export const users = pgTable(
   'users',
@@ -33,6 +35,7 @@ export const accounts = pgTable(
   },
   (t) => [
     uniqueIndex('account_store_unique').on(t.provider, t.issuer, t.subject),
+    unique('accounts_id_owner').on(t.id, t.userId),
   ],
 );
 export const pairs = pgTable(
@@ -61,5 +64,57 @@ export const pairs = pgTable(
   (t) => [
     uniqueIndex('pair_google_unique').on(t.googleId),
     uniqueIndex('pair_microsoft_unique').on(t.microsoftId),
+    unique('pairs_id_owner').on(t.id, t.userId),
+    foreignKey({
+      name: 'pairs_google_owner',
+      columns: [t.googleId, t.userId],
+      foreignColumns: [accounts.id, accounts.userId],
+    }),
+    foreignKey({
+      name: 'pairs_microsoft_owner',
+      columns: [t.microsoftId, t.userId],
+      foreignColumns: [accounts.id, accounts.userId],
+    }),
+  ],
+);
+
+export const sessions = pgTable('sessions', {
+  id: text().primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  csrf: text().notNull(),
+  expires: timestamp({ withTimezone: true }).notNull(),
+});
+export const oauthFlows = pgTable('oauth_flows', {
+  id: text().primaryKey(),
+  browser: text().notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  provider: text().notNull(),
+  purpose: text().notNull(),
+  verifier: text().notNull(),
+  nonce: text().notNull(),
+  expires: timestamp({ withTimezone: true }).notNull(),
+});
+export const jobs = pgTable(
+  'jobs',
+  {
+    id: text().primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    pairId: text('pair_id').references(() => pairs.id, { onDelete: 'cascade' }),
+    status: text().notNull(),
+    counts: jsonb().notNull().default({}),
+    code: text(),
+    created: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    finished: timestamp({ withTimezone: true }),
+  },
+  (t) => [
+    foreignKey({
+      name: 'jobs_pair_owner',
+      columns: [t.pairId, t.userId],
+      foreignColumns: [pairs.id, pairs.userId],
+    }).onDelete('cascade'),
   ],
 );

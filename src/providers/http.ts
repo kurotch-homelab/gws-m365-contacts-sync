@@ -28,6 +28,8 @@ export class Http {
       throw new ProviderError('untrusted_provider_url');
     const safe = !init.method || init.method === 'GET';
     for (let attempt = 0; attempt < 4; attempt++) {
+      // Authentication failure before fetch is a definite non-write.
+      const accessToken = await this.token();
       let response: Response;
       try {
         response = await this.transport(url, {
@@ -35,8 +37,11 @@ export class Http {
           redirect: 'error',
           signal: AbortSignal.timeout(30000),
           headers: {
-            Authorization: `Bearer ${await this.token()}`,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
+            ...(this.origin === 'https://graph.microsoft.com'
+              ? { Prefer: 'IdType="ImmutableId"' }
+              : {}),
             ...init.headers,
           },
         });
@@ -49,6 +54,19 @@ export class Http {
         return response.status === 204
           ? {}
           : ((await response.json()) as Record<string, unknown>);
+      if (
+        safe &&
+        response.status >= 400 &&
+        response.status < 500 &&
+        parsed.pathname.endsWith('/delta')
+      ) {
+        const error = (await response
+          .clone()
+          .json()
+          .catch(() => ({}))) as { error?: { code?: string } };
+        if (error.error?.code?.toLowerCase() === 'syncstatenotfound')
+          throw new ProviderError('cursor_expired', response.status);
+      }
       if (response.status === 401)
         throw new ProviderError('reauth_required', 401);
       if (response.status === 410)

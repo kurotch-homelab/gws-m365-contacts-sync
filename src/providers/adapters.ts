@@ -99,12 +99,14 @@ export class Microsoft implements Adapter {
   private validate(url: string) {
     const parsed = new URL(url),
       base = new URL(this.base);
+    // Graph's documented links use contactfolders rather than contactFolders.
+    // Normalize only the collection segment, never the case-sensitive folder ID.
+    const normalize = (path: string) =>
+      path.replace('/contactfolders/', '/contactFolders/');
+    const path = normalize(parsed.pathname);
     if (
       parsed.origin !== base.origin ||
-      !(
-        parsed.pathname === base.pathname ||
-        parsed.pathname === `${base.pathname}/delta`
-      )
+      !(path === base.pathname || path === `${base.pathname}/delta`)
     )
       throw new ProviderError('cursor_scope_mismatch');
     return url;
