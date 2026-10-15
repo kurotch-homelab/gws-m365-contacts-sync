@@ -49,7 +49,13 @@ test('synthetic workspace requires explicit review before approval, deletion sta
           },
         },
       ],
-      microsoft: [],
+      microsoft: [
+        {
+          id: 'removed-fixture',
+          removedFromFolder: true,
+          fields: { givenName: 'Removed contact' },
+        },
+      ],
     },
     plan: {
       id: 'plan-one',
@@ -131,6 +137,9 @@ test('synthetic workspace requires explicit review before approval, deletion sta
     csrf: 'synthetic-csrf',
   });
   expect(errors).toEqual([]);
+  await expect(
+    page.getByRole('option', { name: /Removed contact/ }),
+  ).toHaveCount(0);
   await page.screenshot({
     path: '/tmp/contacts-ui-desktop.png',
     fullPage: true,

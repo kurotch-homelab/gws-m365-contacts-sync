@@ -218,6 +218,24 @@ test(
           microsoftBase: g.fields,
         },
       ];
+      const oldConflictId = randomUUID();
+      state.plan = {
+        id: randomUUID(),
+        revision: 0,
+        expires: Date.now() + 600000,
+        items: [
+          {
+            id: oldConflictId,
+            mappingId: mapping,
+            google: 'g0',
+            microsoft: 'm1',
+            expected: {},
+            fields: {},
+            kind: 'conflict',
+            reason: 'edit_delete_conflict',
+          },
+        ],
+      };
       await db.sql`INSERT INTO pairs(id,user_id,google_id,microsoft_id,folder,state) VALUES(${pair},${user},${google},${microsoft},'folder',${JSON.stringify(state)}::jsonb)`;
       const link = (m: string) =>
         server.inject({
@@ -230,6 +248,21 @@ test(
           },
           payload: { google: 'g0', microsoft: m, mappingId: mapping },
         });
+      const resolution = await server.inject({
+        method: 'POST',
+        url: `/api/pairs/${pair}/resolve`,
+        headers: {
+          cookie: `session=${user}`,
+          origin: cfg.origin,
+          'x-csrf-token': 'csrf',
+        },
+        payload: { itemId: oldConflictId, side: 'google' },
+      });
+      assert.equal(resolution.statusCode, 409);
+      assert.equal(
+        resolution.json().error,
+        'folder_removal_requires_reconciliation',
+      );
       assert.equal((await link('m1')).statusCode, 409);
       const result = await link('m2');
       assert.equal(result.statusCode, 200);
