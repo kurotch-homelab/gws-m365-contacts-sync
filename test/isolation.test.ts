@@ -106,6 +106,19 @@ test(
       );
       assert.equal((await request(bob, 'GET', '/api/me')).statusCode, 401);
       assert.equal((await server.inject('/api/me')).statusCode, 401);
+      await assert.rejects(
+        () =>
+          db.sql.begin(async (tx) => {
+            await tx`DELETE FROM pairs WHERE id=${pair}`;
+            await tx`INSERT INTO pairs(id,user_id,google_id,microsoft_id,folder) VALUES(${randomUUID()},${bob},${google},${microsoft},'contacts')`;
+          }),
+        (error) =>
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          error.code === '23503',
+      );
+
       const begin = await request(alice, 'GET', '/auth/unknown/login');
       assert.equal(begin.statusCode, 404);
       assert.equal(
