@@ -59,3 +59,9 @@ Encryption-key rotation requires an audited re-encryption migration while the ap
 ## Deployment boundaries
 
 Terminate HTTPS on a trusted reverse proxy, use the configured exact public origin, and keep app/database hosts private. Compose publishes only app loopback and no database port. Supply mounted secret files readable by the runtime UID without broad host access. Pin tested container digests for production and periodically update lockfile dependencies with local verification. No analytics, telemetry, or third-party contact-sync SaaS is included.
+
+### Builds behind an approved package proxy
+
+The Dockerfile accepts an optional BuildKit secret named `build_ca` containing your proxy's public CA certificate. Supply standard `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` build arguments without embedding them in the Dockerfile. The CA is mounted for the dependency-install step only and is not copied into the runtime image. Some nested cloud Docker builders also need the approved proxy hostname resolved with `--add-host`; use the environment's existing proxy, never bypass its domain policy. Runtime provider access is a separate deployment concern.
+
+Browser tests can use an already-installed browser with `PLAYWRIGHT_EXECUTABLE_PATH=/usr/bin/chromium npm run test:ui` when downloading Playwright's bundled browser is unavailable.

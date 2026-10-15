@@ -83,9 +83,28 @@ export async function verifyIdentity(
     algorithms: ['RS256'],
     requiredClaims: ['sub', 'exp', 'iat', 'nonce'],
   });
-  if (payload.nonce !== nonce || !payload.sub)
-    throw new Error('invalid_identity');
+  validateIdentityClaims(payload, config.clientId, nonce);
   return { issuer: config.issuer, subject: payload.sub };
+}
+export function validateIdentityClaims(
+  payload: {
+    sub?: string;
+    nonce?: unknown;
+    aud?: string | string[];
+    azp?: unknown;
+  },
+  clientId: string,
+  nonce: string,
+): asserts payload is typeof payload & { sub: string } {
+  if (
+    payload.nonce !== nonce ||
+    !payload.sub ||
+    (payload.azp !== undefined && payload.azp !== clientId) ||
+    (Array.isArray(payload.aud) &&
+      payload.aud.length > 1 &&
+      payload.azp !== clientId)
+  )
+    throw new Error('invalid_identity');
 }
 export function scopes(provider: ProviderName, purpose: string) {
   return purpose === 'login'

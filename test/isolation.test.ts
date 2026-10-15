@@ -97,6 +97,43 @@ test(
       );
       assert.equal((await request(bob, 'GET', '/api/admin')).statusCode, 403);
       assert.equal(
+        (await request(bob, 'GET', `/api/pairs/${pair}/state`)).statusCode,
+        404,
+      );
+      for (const endpoint of ['preview', 'run', 'reconcile'])
+        assert.equal(
+          (await request(bob, 'POST', `/api/pairs/${pair}/${endpoint}`))
+            .statusCode,
+          404,
+        );
+      assert.equal(
+        (
+          await request(bob, 'POST', `/api/pairs/${pair}/approve`, {
+            planId: randomUUID(),
+          })
+        ).statusCode,
+        404,
+      );
+      assert.equal(
+        (
+          await request(bob, 'POST', `/api/pairs/${pair}/resolve`, {
+            itemId: randomUUID(),
+            side: 'google',
+          })
+        ).statusCode,
+        404,
+      );
+      assert.equal(
+        (
+          await request(bob, 'POST', `/api/pairs/${pair}/link`, {
+            google: 'g',
+            microsoft: 'm',
+          })
+        ).statusCode,
+        404,
+      );
+
+      assert.equal(
         (
           await request(alice, 'PATCH', `/api/admin/users/${bob}`, {
             disabled: true,

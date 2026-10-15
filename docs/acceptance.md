@@ -23,3 +23,14 @@ Synthetic fixture tests are not evidence of provider acceptance. In particular, 
 - [ ] Verify production-like HTTPS, Compose persistence, backup/restore and secrets-file permissions with contact access blocked during restore validation.
 
 No production deployment, real consent, credential generation, tenant-policy change, or real contact sync/delete was performed during implementation.
+
+## Recorded local verification — 2026-10-15
+
+- `TEST_DATABASE_URL=... npm run check`: Prettier, ESLint, strict backend/frontend TypeScript, production bundle and **24 tests passed; zero skipped** against the disposable PostgreSQL 17 container.
+- `PLAYWRIGHT_EXECUTABLE_PATH=/usr/bin/chromium npm run test:ui`: **2 browser smoke tests passed**. Verified provider sign-in links, review-gated approval/CSRF request, deletion off, no browser exceptions, and 390px viewport without horizontal overflow. Desktop/mobile screenshots were inspected locally.
+- Docker multi-stage build passed using the environment's approved proxy and temporary BuildKit CA mount. No proxy certificate or provider credentials are included in the runtime image.
+- Compose app and database health checks passed with public synthetic placeholders. Runtime UID was 1000; `/health` returned 200, unauthenticated `/api/me` returned 401, and static responses included CSP frame restrictions.
+- Restart retained a synthetic database fixture. A custom-format `pg_dump` restored into a separate disposable database with that fixture and both schema migration records intact.
+- No GitHub Actions workflows were added or run. All checks ran in the user's saved cloud environment.
+
+The bundled Playwright browser download was denied by domain policy; the already-installed Chromium provided browser verification. Native GitHub Sub Issue attachment was unavailable in the connected tools and direct API access was forbidden; the focused issues are cross-linked on #1 instead. These restrictions were not bypassed.

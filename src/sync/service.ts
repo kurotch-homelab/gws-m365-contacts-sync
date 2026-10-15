@@ -93,6 +93,8 @@ export class SyncService {
     return this.withPair(userId, id, async (pair, engine) => {
       if (mode === 'scheduled' && (!pair.enabled || !pair.state.initialized))
         return { skipped: true };
+      await this.db
+        .sql`UPDATE jobs SET status='interrupted',code='process_interrupted',finished=now() WHERE pair_id=${id} AND user_id=${userId} AND status='running'`;
       const jobId = randomUUID();
       await this.db
         .sql`INSERT INTO jobs(id,user_id,pair_id,status) VALUES(${jobId},${userId},${id},'running')`;
@@ -124,11 +126,31 @@ export class SyncService {
         }
         await this.db
           .sql`UPDATE jobs SET status='succeeded',counts=${JSON.stringify(mode === 'preview' ? { preview: true } : result)}::jsonb,finished=now() WHERE id=${jobId} AND user_id=${userId}`;
+        process.stdout.write(
+          JSON.stringify({
+            event: 'sync_job_finished',
+            jobId,
+            pairId: id,
+            mode,
+            status: 'succeeded',
+            ...(mode === 'preview' ? {} : { counts: result }),
+          }) + '\n',
+        );
         return result;
       } catch (error) {
         const code = error instanceof ProviderError ? error.code : 'job_failed';
         await this.db
           .sql`UPDATE jobs SET status='failed',code=${code},counts='{"failed":1}'::jsonb,finished=now() WHERE id=${jobId} AND user_id=${userId}`;
+        process.stdout.write(
+          JSON.stringify({
+            event: 'sync_job_finished',
+            jobId,
+            pairId: id,
+            mode,
+            status: 'failed',
+            code,
+          }) + '\n',
+        );
         throw new HttpError(409, code);
       } finally {
         await this.db

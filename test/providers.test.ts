@@ -208,3 +208,22 @@ test('Graph accepts documented lowercase collection links without changing folde
     /cursor_scope_mismatch/,
   );
 });
+test('Graph syncStateNotFound 40x is cursor expiry, not a missing contact', async () => {
+  for (const status of [400, 404, 410]) {
+    const graph = new Microsoft(
+      new Http(
+        async () => 'synthetic',
+        'https://graph.microsoft.com',
+        async () => response({ error: { code: 'syncStateNotFound' } }, status),
+      ),
+      'folder',
+    );
+    await assert.rejects(
+      () =>
+        graph.read(
+          'https://graph.microsoft.com/v1.0/me/contactFolders/folder/contacts/delta?$deltatoken=expired',
+        ),
+      /cursor_expired/,
+    );
+  }
+});

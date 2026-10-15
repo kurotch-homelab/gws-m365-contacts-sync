@@ -54,6 +54,19 @@ export class Http {
         return response.status === 204
           ? {}
           : ((await response.json()) as Record<string, unknown>);
+      if (
+        safe &&
+        response.status >= 400 &&
+        response.status < 500 &&
+        parsed.pathname.endsWith('/delta')
+      ) {
+        const error = (await response
+          .clone()
+          .json()
+          .catch(() => ({}))) as { error?: { code?: string } };
+        if (error.error?.code?.toLowerCase() === 'syncstatenotfound')
+          throw new ProviderError('cursor_expired', response.status);
+      }
       if (response.status === 401)
         throw new ProviderError('reauth_required', 401);
       if (response.status === 410)

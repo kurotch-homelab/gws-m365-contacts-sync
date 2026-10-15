@@ -21,3 +21,5 @@ Photos, birthdays, groups/categories and other unsupported fields are never incl
 ## Safety limits
 
 A Graph contact leaving the selected folder can look like a removal. ID moves and missing mapped IDs need explicit re-linking/reconciliation; do not assume an absent record was deleted. Transient read failures use bounded backoff with Retry-After. Writes are journaled and not blindly retried after network/5xx failures. Access-token refresh is serialized per account; a rejected refresh requires reconnection. Raw provider errors, URLs, contact contents and tokens must never enter logs.
+
+Graph requests use `Prefer: IdType="ImmutableId"` and preserve the existing displayName on unrelated patches, as specified in the [contact resource reference](https://learn.microsoft.com/en-us/graph/api/resources/contact?view=graph-rest-1.0). The delta validator accepts the documented `contactfolders` collection spelling without changing case-sensitive folder IDs. Both 410 resets and 40x `syncStateNotFound` responses trigger safe full reconciliation, per the [delta overview](https://learn.microsoft.com/en-us/graph/delta-query-overview).
