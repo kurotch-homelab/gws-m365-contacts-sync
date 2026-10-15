@@ -144,3 +144,67 @@ test('Google cursor expiry is classified without retaining provider error conten
     (error) => error instanceof Error && error.message === 'cursor_expired',
   );
 });
+test('Graph preserves display name and sends immutable IDs; auth failure is not an uncertain write', async () => {
+  assert.deepEqual(
+    graphPatch({ givenName: 'New' }, { displayName: 'Keep me' }),
+    { givenName: 'New', displayName: 'Keep me' },
+  );
+  let headers: HeadersInit | undefined;
+  const http = new Http(
+    async () => 'synthetic',
+    'https://graph.microsoft.com',
+    async (_url, init) => {
+      headers = init?.headers;
+      return response({});
+    },
+  );
+  await http.request('https://graph.microsoft.com/test');
+  assert.equal(new Headers(headers).get('Prefer'), 'IdType="ImmutableId"');
+  const rejected = new Http(
+    async () => {
+      throw new Error('reauth_required');
+    },
+    'https://graph.microsoft.com',
+    async () => {
+      throw new Error('must not fetch');
+    },
+  );
+  await assert.rejects(
+    () =>
+      rejected.request('https://graph.microsoft.com/test', { method: 'POST' }),
+    /reauth_required/,
+  );
+});
+test('Graph accepts documented lowercase collection links without changing folder identity', async () => {
+  let calls = 0;
+  const mock: typeof fetch = async () => {
+    calls++;
+    return response(
+      calls === 1
+        ? {
+            value: [],
+            '@odata.nextLink':
+              'https://graph.microsoft.com/v1.0/me/contactfolders/CaseSensitive/contacts/delta?$skiptoken=x',
+          }
+        : {
+            value: [],
+            '@odata.deltaLink':
+              'https://graph.microsoft.com/v1.0/me/contactfolders/CaseSensitive/contacts/delta?$deltatoken=y',
+          },
+    );
+  };
+  const graph = new Microsoft(
+    new Http(async () => 'synthetic', 'https://graph.microsoft.com', mock),
+    'CaseSensitive',
+  );
+  const result = await graph.read();
+  assert.equal(calls, 2);
+  assert.ok(result.cursor.includes('$deltatoken=y'));
+  await assert.rejects(
+    () =>
+      graph.read(
+        'https://graph.microsoft.com/v1.0/me/contactfolders/casesensitive/contacts/delta',
+      ),
+    /cursor_scope_mismatch/,
+  );
+});

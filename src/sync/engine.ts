@@ -434,15 +434,47 @@ export class Engine {
         this.state.intents.push(intent);
         await this.save(); // Durable before sending a mutation.
         let result: Contact | undefined;
-        if (kind === 'create') {
-          result = await this.adapters[side].create(fields, intent.id);
-          counts.created++;
-        } else if (kind === 'update') {
-          result = await this.adapters[side].update(current!, fields);
-          counts.updated++;
-        } else {
-          await this.adapters[side].delete(current!);
-          counts.deleted++;
+        try {
+          if (kind === 'create') {
+            result = await this.adapters[side].create(fields, intent.id);
+            counts.created++;
+          } else if (kind === 'update') {
+            result = await this.adapters[side].update(current!, fields);
+            counts.updated++;
+          } else {
+            await this.adapters[side].delete(current!);
+            counts.deleted++;
+          }
+        } catch (error) {
+          const definitelyNotWritten =
+            error instanceof MappingError ||
+            (error instanceof ProviderError &&
+              [
+                'reauth_required',
+                'oauth_unavailable',
+                'rate_limited',
+                'provider_rejected',
+                'concurrent_change',
+                'invalid_resource',
+              ].includes(error.code));
+          if (definitelyNotWritten) {
+            this.state.intents = this.state.intents.filter(
+              (i) => i.id !== intent.id,
+            );
+            if (!mapping.google || !mapping.microsoft) {
+              const hasWrites = this.state.intents.some(
+                (i) => i.mapping === mapping.id,
+              );
+              if (!hasWrites) {
+                this.state.maps = this.state.maps.filter(
+                  (m) => m.id !== mapping.id,
+                );
+                delete item.mappingId;
+              }
+            }
+            await this.save();
+          }
+          throw error;
         }
         intent.done = true;
         intent.result = result;

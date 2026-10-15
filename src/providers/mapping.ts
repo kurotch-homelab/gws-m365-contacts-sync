@@ -253,5 +253,12 @@ export function graphPatch(fields: Fields, raw: Obj = {}): Obj {
     if (sites.length > 1) throw new MappingError();
     patch.businessHomePage = sites[0] ?? '';
   }
+  // Graph can otherwise regenerate displayName when unrelated fields change.
+  if (
+    Object.keys(patch).length &&
+    !('displayName' in patch) &&
+    typeof raw.displayName === 'string'
+  )
+    patch.displayName = raw.displayName;
   return patch;
 }

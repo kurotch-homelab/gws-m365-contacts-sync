@@ -310,3 +310,20 @@ test('explicit linking of equal contacts establishes baselines for later one-sid
   await s.engine.apply(p.id, 0, false);
   assert.equal(s.microsoft.contacts.m0?.fields.givenName, 'B');
 });
+test('definite authentication rejection releases the unsent create intent for a safe retry', async () => {
+  const s = setup(),
+    plan = await s.engine.dryRun(0, false);
+  const original = s.microsoft.create.bind(s.microsoft);
+  s.microsoft.create = async () => {
+    throw new ProviderError('reauth_required');
+  };
+  await assert.rejects(
+    () => s.engine.apply(plan.id, 0, false),
+    /reauth_required/,
+  );
+  assert.equal(s.saved().intents.length, 0);
+  assert.equal(s.saved().maps.length, 0);
+  s.microsoft.create = original;
+  await s.engine.apply(plan.id, 0, false);
+  assert.equal(s.microsoft.creates, 1);
+});
