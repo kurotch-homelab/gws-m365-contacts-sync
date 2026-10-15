@@ -67,7 +67,7 @@ export class Http {
         throw new ProviderError('provider_rejected', 400);
       }
       if (
-        safe &&
+        (safe || response.status === 429) &&
         (response.status === 429 || response.status >= 500) &&
         attempt < 3
       ) {
