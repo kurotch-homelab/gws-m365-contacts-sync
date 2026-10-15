@@ -149,7 +149,9 @@ export class Microsoft implements Adapter {
         singleValueExtendedProperties: [{ id: markerId, value: marker }],
       }),
     });
-    return this.get(String(result.id));
+    if (typeof result.id !== 'string' || !result.id)
+      throw new ProviderError('write_outcome_unknown');
+    return this.hydrateWrite(result.id);
   }
   async update(current: Contact, fields: Fields) {
     await this.http.request(`${this.base}/${encodeURIComponent(current.id)}`, {
@@ -157,7 +159,16 @@ export class Microsoft implements Adapter {
       headers: { 'If-Match': current.etag },
       body: JSON.stringify(graphPatch(fields, current.raw)),
     });
-    return this.get(current.id);
+    return this.hydrateWrite(current.id);
+  }
+  private async hydrateWrite(id: string): Promise<Contact> {
+    try {
+      return await this.get(id);
+    } catch {
+      // The mutation already succeeded. Even a definite GET rejection cannot
+      // prove that no write occurred: retain the original durable intent.
+      throw new ProviderError('write_outcome_unknown');
+    }
   }
   async delete(current: Contact) {
     await this.http.request(`${this.base}/${encodeURIComponent(current.id)}`, {
