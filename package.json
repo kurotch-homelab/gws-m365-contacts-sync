@@ -10,6 +10,7 @@
     "dev": "tsx watch src/main.ts",
     "build": "tsc && tsc -p tsconfig.web.json && vite build",
     "start": "node dist/main.js",
+    "pretest": "node scripts/require-test-database.mjs",
     "test": "tsx --test test/*.test.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
